@@ -4,11 +4,10 @@ from flask import Flask, request, jsonify
 import pickle
 import pandas as pd
 
+from model_loader import model
+
 # Create Flask app
 app = Flask(__name__)
-
-# Load trained model
-model = pickle.load(open("models/heat_model.pkl", "rb"))
 
 # Heat risk labels
 labels = {

@@ -1,73 +1,37 @@
 print("🔥 FINAL BACKEND RUNNING")
 
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import pandas as pd
 
-from backend.weather import get_weather
-from backend.model_loader import model
+from weather import get_weather
+from model_loader import model
+from api import climate_solutions, heat_advice
 
 app = Flask(__name__)
+CORS(app)  # ✅ Allow frontend requests
 
 
-# 🔹 Heat labels
+# 🔹 Heat labels (ML output → readable)
 labels = {
     0: "Low",
     1: "Medium",
     2: "High"
 }
 
-
-# 🔹 Heat advice
-heat_advice = {
-    "Low": {
-        "clothing": "Wear light casual clothes.",
-        "outdoor": "Safe for outdoor activities.",
-        "hydration": "Drink water regularly."
-    },
-    "Medium": {
-        "clothing": "Wear cotton clothes and sunscreen.",
-        "outdoor": "Avoid 12–3 PM sun.",
-        "hydration": "Drink water frequently."
-    },
-    "High": {
-        "clothing": "Wear caps and breathable clothes.",
-        "outdoor": "Avoid 11 AM – 4 PM.",
-        "hydration": "Drink water every 20–30 mins."
-    }
-}
-
-
-# 🔹 Climate logic
-def climate_solutions(temp):
-
-    if temp <= 0:
-        return "Freezing", {"advice": "Wear heavy winter gear"}
-    elif temp <= 10:
-        return "Cold", {"advice": "Wear jackets"}
-    elif temp <= 25:
-        return "Moderate", {"advice": "Comfortable weather"}
-    elif temp <= 35:
-        return "Warm", {"advice": "Use sunscreen"}
-    else:
-        return "Hot / Heatwave", {
-            "clothing": "Wear light breathable clothes",
-            "hydration": "Drink water frequently",
-            "safety": "Stay indoors during peak heat"
-        }
-
-
-# 🏠 HOME
+# 🏠 HOME ROUTE
 @app.route("/")
 def home():
     return "Backend Running Successfully"
 
 
-# 🔥 MAIN API
+# 🔥 MAIN API (Frontend → Backend → Weather → ML → Response)
 @app.route("/api/live", methods=["POST"])
 def predict_heat():
 
     try:
         data = request.get_json()
+        print("📍 Received request:", data)
 
         lat = data.get("lat")
         lon = data.get("lon")
@@ -75,15 +39,18 @@ def predict_heat():
         if lat is None or lon is None:
             return jsonify({"error": "lat and lon required"}), 400
 
-        # 🌦️ Get weather
+        print(f"📍 Location: lat={lat}, lon={lon}")
+
+        # 🌦️ Step 1: Get real-time weather
         temp, humidity, pressure, wind = get_weather(lat, lon)
 
-        # Convert to model format
+        print(f"🌡 Weather → Temp: {temp}, Humidity: {humidity}, Wind: {wind}")
+
+        # 🔧 Step 2: Prepare ML input
         temp_max = temp + 1
         temp_min = temp - 1
         precip = 0
 
-        # DataFrame input
         sample = pd.DataFrame([[temp_max, temp_min, precip, wind]], columns=[
             "temperature_2m_max",
             "temperature_2m_min",
@@ -91,27 +58,44 @@ def predict_heat():
             "wind_speed_10m_max"
         ])
 
-        # Predict
-        prediction = model.predict(sample)[0]
-        heat_risk = labels[prediction]
+        print("📊 Model input:", sample)
 
+        # 🔮 Step 3: ML Prediction
+        prediction = model.predict(sample)[0]
+        heat_risk = labels.get(prediction, "Unknown")
+
+        print("🔥 Prediction:", heat_risk)
+
+# 🌡 Step 4: Climate-based logic
         avg_temp = (temp_max + temp_min) / 2
+
+# ✅ GET recommendation from api.py (IMPORTANT)
+        recommendation = heat_advice.get(heat_risk, {})
+
+# Optional: climate info
         climate, climate_advice = climate_solutions(avg_temp)
 
-        return jsonify({
-            "temperature": temp,
+        # 📤 Final response
+        response = {
+            "temp": temp,
             "humidity": humidity,
-            "heat_risk": heat_risk,
-            "heat_advice": heat_advice[heat_risk],
+            "wind": wind,
+            "risk": heat_risk,
+            "recommendation": recommendation,
             "climate_type": climate,
             "climate_solutions": climate_advice
-        })
+        }
+
+        print("✅ Sending response:", response)
+
+        return jsonify(response)
 
     except Exception as e:
+        print("❌ ERROR:", str(e))
         return jsonify({"error": str(e)}), 500
 
 
-# 🗺️ HEATMAP API (Member 4)
+# 🗺️ HEATMAP API (dummy for now)
 @app.route("/api/heatmap/<city>")
 def heatmap(city):
 
@@ -124,7 +108,7 @@ def heatmap(city):
     return jsonify(data)
 
 
-# 💬 CHATBOT API (Member 4)
+# 💬 CHATBOT API
 @app.route("/api/chat", methods=["POST"])
 def chat():
 
@@ -139,6 +123,6 @@ def chat():
     return jsonify({"reply": "Ask about heat, safety, or climate."})
 
 
-# ▶️ RUN
+# ▶️ RUN SERVER
 if __name__ == "__main__":
     app.run(debug=True)
